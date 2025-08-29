@@ -1,6 +1,6 @@
 """
-Multi-League Data Loader for Football Prediction
-複数リーグのデータを統合して学習用データセットを構築
+Unified Football Data Loader for Multi-League Prediction
+全リーグ統合データローダー - Google Drive対応
 """
 
 import pandas as pd
@@ -8,23 +8,24 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import os
+import glob
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 import json
 from collections import defaultdict
 
 
-class FootballDataset(Dataset):
+class UnifiedFootballDataset(Dataset):
     """
-    サッカー試合データセット（PyTorch Dataset）
-    オッズ非依存の特徴量でモデル学習
+    統合サッカー試合データセット（PyTorch Dataset）
+    全リーグのデータを対等に扱い、オッズ非依存の特徴量でモデル学習
     """
     
-    def __init__(self, data_paths: List[str], feature_config: Dict, 
+    def __init__(self, data_dir: str, feature_config: Dict, 
                  team_encoder: Optional[Dict] = None):
         """
         Args:
-            data_paths: データファイルのパスリスト
+            data_dir: CSVファイルが格納されているディレクトリパス
             feature_config: 特徴量設定
             team_encoder: チーム名→IDエンコーダー（Noneの場合は自動生成）
         """
@@ -35,35 +36,69 @@ class FootballDataset(Dataset):
         self.team_decoder = {}
         
         # データ読み込み・前処理
-        self._load_and_process_data(data_paths)
+        self._load_all_csv_files(data_dir)
         self._create_team_mapping()
         self._extract_features()
         
-    def _load_and_process_data(self, data_paths: List[str]):
-        """複数ファイルからデータを読み込み"""
+    def _load_all_csv_files(self, data_dir: str):
+        """指定ディレクトリから全CSVファイルを読み込み"""
         
+        print(f"Loading all CSV files from: {data_dir}")
+        
+        csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
+        
+        if not csv_files:
+            raise ValueError(f"No CSV files found in {data_dir}")
+            
         all_matches = []
         
-        for path in data_paths:
-            if os.path.exists(path):
-                print(f"Loading data from: {path}")
+        for csv_file in csv_files:
+            try:
+                print(f"  Loading: {os.path.basename(csv_file)}")
+                df = pd.read_csv(csv_file)
                 
-                if path.endswith('.csv'):
-                    df = pd.read_csv(path)
-                else:
-                    # ディレクトリの場合、全CSVファイルを読み込み
-                    for csv_file in Path(path).glob('*.csv'):
-                        df = pd.read_csv(csv_file)
-                        all_matches.append(df)
-                        
                 if len(df) > 0:
+                    # リーグ名を推定（ファイル名から）
+                    league_name = self._infer_league_from_filename(os.path.basename(csv_file))
+                    df['league'] = league_name
                     all_matches.append(df)
+                    print(f"    {len(df)} matches loaded from {league_name}")
                     
+            except Exception as e:
+                print(f"    Error loading {csv_file}: {e}")
+                continue
+                
         if all_matches:
             self.raw_data = pd.concat(all_matches, ignore_index=True)
             print(f"Total matches loaded: {len(self.raw_data)}")
+            
+            # リーグ別統計表示
+            league_stats = self.raw_data['league'].value_counts()
+            print("League distribution:")
+            for league, count in league_stats.items():
+                print(f"  {league}: {count} matches")
         else:
-            raise ValueError("No data found in specified paths")
+            raise ValueError("No data could be loaded from any CSV files")
+            
+    def _infer_league_from_filename(self, filename: str) -> str:
+        """ファイル名からリーグ名を推定"""
+        
+        filename_lower = filename.lower()
+        
+        if 'premier' in filename_lower or 'england' in filename_lower:
+            return 'Premier League'
+        elif 'j_league' in filename_lower or 'j-league' in filename_lower or 'jleague' in filename_lower:
+            return 'J-League'
+        elif 'bundesliga' in filename_lower or 'germany' in filename_lower:
+            return 'Bundesliga'
+        elif 'serie_a' in filename_lower or 'italy' in filename_lower:
+            return 'Serie A'
+        elif 'ligue_1' in filename_lower or 'france' in filename_lower:
+            return 'Ligue 1'
+        elif 'laliga' in filename_lower or 'spain' in filename_lower:
+            return 'La Liga'
+        else:
+            return 'Other League'
             
     def _create_team_mapping(self):
         """チーム名をIDにマッピング"""
@@ -173,97 +208,52 @@ class FootballDataset(Dataset):
         }
 
 
-class MultiLeagueDataLoader:
+class UnifiedDataLoader:
     """
-    複数リーグデータの統合ローダー
-    継続学習とファインチューニングに対応
+    統合データローダー
+    Google Driveの単一フォルダから全リーグデータを読み込み
     """
     
     def __init__(self, config: Dict):
         self.config = config
-        self.datasets = {}
         self.team_encoder = {}
         self.team_stats = defaultdict(dict)
         
-    def load_leagues(self, league_configs: Dict[str, Dict]) -> Dict[str, DataLoader]:
+    def load_from_drive(self, csv_dir: str) -> DataLoader:
         """
-        複数リーグのデータを読み込み
+        Google Driveのフォルダから全CSVファイルを読み込み統合DataLoaderを作成
         
         Args:
-            league_configs: リーグ設定辞書
-                {
-                    'premier_league': {'data_path': 'path/to/data', 'weight': 1.0},
-                    'j_league': {'data_path': 'path/to/data', 'weight': 0.8}
-                }
+            csv_dir: CSVファイルが格納されているディレクトリパス
+            例: "/content/drive/MyDrive/league-predictor/stats-csv"
                 
         Returns:
-            data_loaders: リーグ別DataLoader辞書
+            data_loader: 統合されたDataLoader
         """
         
-        all_data_paths = []
+        print(f"Loading data from Google Drive: {csv_dir}")
         
-        # 全リーグのチーム情報を事前収集
-        print("Building global team mapping...")
-        for league_name, config in league_configs.items():
-            data_path = config['data_path']
-            if os.path.exists(data_path):
-                all_data_paths.append(data_path)
-                
-        # グローバルチームエンコーダー作成
-        self._build_global_team_encoder(all_data_paths)
+        # 統合データセット作成
+        dataset = UnifiedFootballDataset(
+            data_dir=csv_dir,
+            feature_config=self.config,
+            team_encoder=self.team_encoder
+        )
         
-        # リーグ別データセット作成
-        data_loaders = {}
+        # チームエンコーダーを更新
+        self.team_encoder = dataset.team_encoder
         
-        for league_name, config in league_configs.items():
-            print(f"Loading {league_name}...")
-            
-            dataset = FootballDataset(
-                data_paths=[config['data_path']],
-                feature_config=self.config,
-                team_encoder=self.team_encoder
-            )
-            
-            # サンプリング重み適用
-            weight = config.get('weight', 1.0)
-            batch_size = int(self.config['batch_size'] * weight)
-            
-            data_loader = DataLoader(
-                dataset,
-                batch_size=batch_size,
-                shuffle=True,
-                num_workers=0  # Google Colab対応
-            )
-            
-            data_loaders[league_name] = data_loader
-            self.datasets[league_name] = dataset
-            
-        return data_loaders
+        # DataLoader作成
+        data_loader = DataLoader(
+            dataset,
+            batch_size=self.config['batch_size'],
+            shuffle=True,
+            num_workers=0  # Google Colab対応
+        )
+        
+        print(f"DataLoader created with {len(dataset)} samples")
+        return data_loader
     
-    def _build_global_team_encoder(self, data_paths: List[str]):
-        """全リーグ共通のチームエンコーダーを構築"""
-        
-        all_teams = set()
-        
-        for path in data_paths:
-            if os.path.exists(path):
-                if path.endswith('.csv'):
-                    df = pd.read_csv(path)
-                    all_teams.update(df['home_team_name'].unique())
-                    all_teams.update(df['away_team_name'].unique())
-                else:
-                    # ディレクトリの場合
-                    for csv_file in Path(path).glob('*.csv'):
-                        df = pd.read_csv(csv_file)
-                        all_teams.update(df['home_team_name'].unique())
-                        all_teams.update(df['away_team_name'].unique())
-        
-        # チームIDアサイン
-        for i, team in enumerate(sorted(all_teams)):
-            self.team_encoder[team] = i
-            
-        print(f"Global team encoder built: {len(self.team_encoder)} teams")
-        
     def save_team_encoder(self, filepath: str):
         """チームエンコーダーを保存"""
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -271,47 +261,53 @@ class MultiLeagueDataLoader:
             
     def load_team_encoder(self, filepath: str):
         """チームエンコーダーを読み込み"""
-        with open(filepath, 'r', encoding='utf-8') as f:
-            self.team_encoder = json.load(f)
+        if os.path.exists(filepath):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                self.team_encoder = json.load(f)
+                print(f"Team encoder loaded: {len(self.team_encoder)} teams")
+        else:
+            print(f"Team encoder file not found: {filepath}")
             
-    def get_combined_dataloader(self, league_configs: Dict[str, Dict]) -> DataLoader:
-        """
-        全リーグを統合した単一DataLoaderを作成
-        """
+    def get_league_statistics(self, csv_dir: str) -> Dict:
+        """リーグ別統計情報を取得"""
         
-        all_data_paths = [config['data_path'] for config in league_configs.values()]
-        
-        combined_dataset = FootballDataset(
-            data_paths=all_data_paths,
-            feature_config=self.config,
-            team_encoder=self.team_encoder
+        dataset = UnifiedFootballDataset(
+            data_dir=csv_dir,
+            feature_config=self.config
         )
         
-        return DataLoader(
-            combined_dataset,
-            batch_size=self.config['batch_size'],
-            shuffle=True,
-            num_workers=0
-        )
+        # リーグ別統計
+        league_stats = dataset.raw_data['league'].value_counts().to_dict()
+        
+        # チーム数統計
+        total_teams = len(dataset.team_encoder)
+        
+        # 試合数統計
+        total_matches = len(dataset.raw_data)
+        
+        return {
+            'league_distribution': league_stats,
+            'total_teams': total_teams,
+            'total_matches': total_matches,
+            'teams_per_league': {
+                league: len(dataset.raw_data[dataset.raw_data['league'] == league]['home_team_name'].unique())
+                for league in league_stats.keys()
+            }
+        }
 
 
-# 設定例
-LEAGUE_CONFIGS = {
-    'premier_league': {
-        'data_path': 'data/raw/premier_league/',
-        'weight': 1.0,
-        'priority': 'high'
-    },
-    'j_league': {
-        'data_path': 'data/raw/j_league/',
-        'weight': 0.8,
-        'priority': 'high'  
-    },
-    'bundesliga': {
-        'data_path': 'data/raw/other_leagues/bundesliga/',
-        'weight': 0.9,
-        'priority': 'medium'
-    }
+# Google Drive設定例
+GOOGLE_DRIVE_CONFIG = {
+    'csv_directory': '/content/drive/MyDrive/league-predictor/stats-csv',
+    'model_directory': '/content/drive/MyDrive/league-predictor/models'
+}
+
+# 学習設定例
+TRAINING_CONFIG = {
+    'batch_size': 64,
+    'feature_dim': 11,
+    'learning_rate': 0.001,
+    'epochs': 100
 }
 
 
@@ -323,29 +319,36 @@ if __name__ == "__main__":
     }
     
     # データローダーテスト
-    loader = MultiLeagueDataLoader(config)
+    loader = UnifiedDataLoader(config)
     
-    # 既存のプレミアリーグデータでテスト
-    test_config = {
-        'premier_league': {
-            'data_path': 'data/raw/premier_league/england-premier-league-matches-2018-to-2019-stats.csv',
-            'weight': 1.0
-        }
-    }
+    # Google Driveパスでテスト（ローカルでは適当なパス）
+    test_csv_dir = "data/raw/premier_league"  # ローカルテスト用
     
     try:
-        data_loaders = loader.load_leagues(test_config)
-        print("Data loading test successful!")
+        # 統計情報を取得
+        stats = loader.get_league_statistics(test_csv_dir)
+        print("League Statistics:")
+        print(f"  Total matches: {stats['total_matches']}")
+        print(f"  Total teams: {stats['total_teams']}")
+        print("  League distribution:")
+        for league, count in stats['league_distribution'].items():
+            print(f"    {league}: {count} matches")
+        print("  Teams per league:")
+        for league, count in stats['teams_per_league'].items():
+            print(f"    {league}: {count} teams")
+        
+        # DataLoader作成テスト
+        data_loader = loader.load_from_drive(test_csv_dir)
+        print(f"\nDataLoader created successfully!")
         
         # サンプルバッチを確認
-        for league_name, data_loader in data_loaders.items():
-            for batch in data_loader:
-                print(f"{league_name} - Batch shapes:")
-                print(f"  Home team IDs: {batch['home_team_id'].shape}")
-                print(f"  Features: {batch['features'].shape}")
-                print(f"  Goals: {batch['home_goals'].shape}")
-                break
+        for batch in data_loader:
+            print(f"Batch shapes:")
+            print(f"  Home team IDs: {batch['home_team_id'].shape}")
+            print(f"  Features: {batch['features'].shape}")
+            print(f"  Goals: {batch['home_goals'].shape}")
             break
             
     except Exception as e:
-        print(f"Data loading test failed: {e}")
+        print(f"Test failed: {e}")
+        print("Note: This test requires actual CSV data files")
