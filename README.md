@@ -56,7 +56,13 @@
 - モンテカルロシミュレーション
 - チャンピオンズリーグ出場確率・降格確率計算
 
-## 使用方法
+## インストール・セットアップ
+
+### GitHubからクローン
+```bash
+git clone https://github.com/{ユーザー名}/premier-league-predictor.git
+cd premier-league-predictor
+```
 
 ### 環境構築
 ```bash
@@ -67,10 +73,10 @@ source .venv/bin/activate  # macOS/Linux
 .venv\Scripts\activate  # Windows
 
 # 必要パッケージインストール
-pip install pandas numpy matplotlib seaborn scikit-learn
+pip install -r requirements.txt
 ```
 
-### 基本的な使い方
+## 使用方法
 
 1. **データ分析の実行**
 ```bash
@@ -175,6 +181,20 @@ league-predictor/
 5. Arsenal - 70点
 
 マンチェスター・シティとリバプールの激しいタイトル争いが特徴的なシーズンでした。
+
+## 貢献・開発
+
+### ブランチ戦略
+- `main`: 安定版リリース
+- `develop`: 開発版
+- `feature/機能名`: 新機能開発
+
+### コントリビューション
+1. このリポジトリをフォーク
+2. 新しいブランチを作成 (`git checkout -b feature/amazing-feature`)
+3. 変更をコミット (`git commit -m 'Add some amazing feature'`)
+4. ブランチにプッシュ (`git push origin feature/amazing-feature`)
+5. プルリクエストを作成
 
 ## ライセンス
 
