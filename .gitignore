@@ -48,22 +48,24 @@ Thumbs.db
 .ipynb_checkpoints
 
 # Model files (if large)
-*.pkl
-*.joblib
-*.h5
+models/saved/*.pth
+models/saved/*.pt
+models/saved/*.pkl
+
+# Data files (CSV files should be managed via Google Drive)
+stats-csv/
+data/raw/**/*.csv
+data/processed/**/*.csv
+data/predictions/**/*.csv
+data/fixtures/**/*.csv
 
 # Logs
+logs/
 *.log
 
 # Temporary files
-*.tmp
-*.temp
-
-# Data files (exclude large datasets from git)
-# Uncomment if datasets are very large
-# *.csv
-# *.json
-# *.xlsx
+temp/
+tmp/
 
 # Output files
 output/
