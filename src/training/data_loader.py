@@ -58,6 +58,12 @@ class UnifiedFootballDataset(Dataset):
                 df = pd.read_csv(csv_file)
                 
                 if len(df) > 0:
+                    # statusカラムがある場合は、'complete'のみを対象とする
+                    if 'status' in df.columns:
+                        before_count = len(df)
+                        df = df[df['status'] == 'complete'].copy()
+                        print(f"    Filtered by status: {before_count} -> {len(df)} matches")
+                    
                     # リーグ名を推定（ファイル名から）
                     league_name = self._infer_league_from_filename(os.path.basename(csv_file))
                     df['league'] = league_name

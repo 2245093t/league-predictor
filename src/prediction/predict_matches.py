@@ -81,13 +81,24 @@ class WeeklyMatchPredictor:
         # 結果データ読み込み（あれば）
         if results_file and os.path.exists(results_file):
             results_df = pd.read_csv(results_file)
-            print(f"Results loaded: {len(results_df)} completed matches")
+            # statusカラムがある場合は、'complete'のみを対象とする
+            if 'status' in results_df.columns:
+                before_count = len(results_df)
+                results_df = results_df[results_df['status'] == 'complete'].copy()
+                print(f"Results filtered by status: {before_count} -> {len(results_df)} matches")
+            else:
+                print(f"Results loaded: {len(results_df)} completed matches")
         else:
             # 結果データがない場合は、試合予定から完了済みを抽出
-            completed_mask = (
-                fixtures_df['home_team_goal_count'].notna() & 
-                fixtures_df['away_team_goal_count'].notna()
-            )
+            if 'status' in fixtures_df.columns:
+                # statusカラムがある場合
+                completed_mask = fixtures_df['status'] == 'complete'
+            else:
+                # 従来の方法（ゴール数による判定）
+                completed_mask = (
+                    fixtures_df['home_team_goal_count'].notna() & 
+                    fixtures_df['away_team_goal_count'].notna()
+                )
             results_df = fixtures_df[completed_mask].copy()
             print(f"Completed matches from fixtures: {len(results_df)}")
             

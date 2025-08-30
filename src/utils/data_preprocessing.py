@@ -450,6 +450,12 @@ class FixtureProcessor:
         
         fixtures_df = pd.read_csv(filepath)
         
+        # statusカラムがある場合は、'complete'のみを対象とする
+        if 'status' in fixtures_df.columns:
+            before_count = len(fixtures_df)
+            fixtures_df = fixtures_df[fixtures_df['status'] == 'complete'].copy()
+            print(f"Filtered by status: {before_count} -> {len(fixtures_df)} matches")
+        
         # 必須カラムチェック
         required_columns = ['Game Week', 'home_team_name', 'away_team_name']
         missing_columns = [col for col in required_columns if col not in fixtures_df.columns]
