@@ -387,10 +387,10 @@ class FootballTrainer:
         
         for epoch in range(self.config['epochs']):
             # 学習フェーズ
-            train_loss, goal_loss, result_loss = self._train_epoch(train_loader)
+            train_loss, goal_loss, result_loss = self.train_epoch(train_loader)
             
             # 検証フェーズ
-            val_loss, accuracy = self._validate_epoch(val_loader)
+            val_loss, accuracy = self.evaluate(val_loader)
             
             # 学習率調整
             self.scheduler.step(val_loss)
