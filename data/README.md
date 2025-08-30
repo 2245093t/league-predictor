@@ -6,14 +6,12 @@
 
 ```
 data/
-├── raw/                      # 生データ（Google Driveで管理）
-│   ├── premier_league/       # プレミアリーグのCSVファイル
-│   ├── j_league/            # Jリーグのデータ
-│   └── other_leagues/       # その他のリーグ
 ├── processed/               # 前処理済みデータ
 ├── fixtures/                # 試合予定・結果データ
 └── predictions/             # 予測結果の出力
 ```
+
+**注意**: 生データ（CSV）は`stats-csv/`フォルダで管理され、Google Driveから直接アクセスします。
 
 ## 🔒 プライバシー保護
 
@@ -36,16 +34,13 @@ data/
 ## 🚀 データの使用方法
 
 ### 1. Google Driveからデータをアップロード
-Google Colabの学習ノートブックでデータをアップロードしてください。
+Google Colabの学習ノートブックでデータを`stats-csv/`フォルダにアップロードしてください。
 
-### 2. 学習用データの配置
+### 2. 統合データローダーの使用
 ```python
-# Google Colab内で
-for filename in uploaded.keys():
-    if 'premier_league' in filename.lower():
-        !mv "{filename}" data/raw/premier_league/
-    elif 'j_league' in filename.lower():
-        !mv "{filename}" data/raw/j_league/
+# 全リーグのCSVファイルを自動で読み込み
+loader = UnifiedDataLoader(config)
+data_loader = loader.load_from_drive("/content/drive/MyDrive/league-predictor/stats-csv")
 ```
 
 ### 3. 予測用の現在シーズンデータ

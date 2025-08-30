@@ -53,8 +53,8 @@ models/saved/*.pt
 models/saved/*.pkl
 
 # Data files (CSV files should be managed via Google Drive)
+# サッカーデータ（プライバシー保護）
 stats-csv/
-data/raw/**/*.csv
 data/processed/**/*.csv
 data/predictions/**/*.csv
 data/fixtures/**/*.csv

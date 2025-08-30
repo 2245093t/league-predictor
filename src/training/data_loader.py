@@ -321,8 +321,8 @@ if __name__ == "__main__":
     # データローダーテスト
     loader = UnifiedDataLoader(config)
     
-    # Google Driveパスでテスト（ローカルでは適当なパス）
-    test_csv_dir = "data/raw/premier_league"  # ローカルテスト用
+    # ローカルテスト用（実際はGoogle Driveのstats-csv/を使用）
+    test_csv_dir = "../stats-csv"  # ローカルテスト用
     
     try:
         # 統計情報を取得
