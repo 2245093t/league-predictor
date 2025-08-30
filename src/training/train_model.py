@@ -104,8 +104,7 @@ class FootballTrainer:
             self.optimizer,
             mode='min',
             factor=0.5,
-            patience=10,
-            verbose=True
+            patience=10
         )
         
     def train_epoch(self, data_loader: DataLoader) -> Tuple[float, float, float]:
