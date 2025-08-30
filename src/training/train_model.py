@@ -19,13 +19,13 @@ from pathlib import Path
 # 相対インポート
 try:
     from .model_architecture import FootballMatchPredictor, DEFAULT_CONFIG
-    from .data_loader import MultiLeagueDataLoader, LEAGUE_CONFIGS
+    from .data_loader import UnifiedDataLoader
 except ImportError:
     # 直接実行時
     import sys
     sys.path.append(os.path.dirname(os.path.dirname(__file__)))
     from training.model_architecture import FootballMatchPredictor, DEFAULT_CONFIG
-    from training.data_loader import MultiLeagueDataLoader, LEAGUE_CONFIGS
+    from training.data_loader import UnifiedDataLoader
 
 
 class FootballTrainer:
@@ -246,14 +246,20 @@ class FootballTrainer:
         
         self.logger.info("Starting training...")
         
-        # データローダー作成
-        data_loader = MultiLeagueDataLoader(self.config)
+        # 統合データローダー作成
+        data_loader = UnifiedDataLoader(self.config)
         
-        # 統合データローダー
-        combined_loader = data_loader.get_combined_dataloader(league_configs)
+        # 統合データローダー（従来の互換性維持）
+        combined_loader = data_loader.load_from_drive(league_configs) if isinstance(league_configs, str) else None
         
         # データセット分割
-        dataset = combined_loader.dataset
+        if combined_loader:
+            dataset = combined_loader.dataset
+        else:
+            # 従来のリーグ設定形式の場合
+            self.logger.warning("古いリーグ設定形式が使用されています。統合データローダーをお使いください。")
+            return
+            
         dataset_size = len(dataset)
         val_size = int(validation_split * dataset_size)
         train_size = dataset_size - val_size
@@ -334,6 +340,100 @@ class FootballTrainer:
     def save_model(self, filepath: str, metadata: Optional[Dict] = None):
         """モデル保存（履歴付き）"""
         self.model.save_model(filepath, metadata)
+    
+    def train_with_unified_data(self, train_dataloader: DataLoader, 
+                              validation_split: float = 0.2,
+                              save_path: str = "models/saved",
+                              checkpoint_interval: int = 10):
+        """
+        統合データローダーでの学習（Google Colab対応）
+        
+        Args:
+            train_dataloader: 統合データローダー
+            validation_split: 検証用データの割合
+            save_path: モデル保存パス
+            checkpoint_interval: チェックポイント保存間隔
+        """
+        
+        self.logger.info("Starting unified training...")
+        
+        # データセット分割
+        dataset = train_dataloader.dataset
+        dataset_size = len(dataset)
+        val_size = int(validation_split * dataset_size)
+        train_size = dataset_size - val_size
+        
+        train_dataset, val_dataset = torch.utils.data.random_split(
+            dataset, [train_size, val_size]
+        )
+        
+        train_loader = DataLoader(
+            train_dataset, 
+            batch_size=self.config['batch_size'], 
+            shuffle=True,
+            num_workers=0  # Google Colab対応
+        )
+        val_loader = DataLoader(
+            val_dataset, 
+            batch_size=self.config['batch_size'], 
+            shuffle=False,
+            num_workers=0  # Google Colab対応
+        )
+        
+        # 保存ディレクトリ作成
+        os.makedirs(save_path, exist_ok=True)
+        
+        # 学習ループ
+        best_val_loss = float('inf')
+        
+        for epoch in range(self.config['epochs']):
+            # 学習フェーズ
+            train_loss, goal_loss, result_loss = self._train_epoch(train_loader)
+            
+            # 検証フェーズ
+            val_loss, accuracy = self._validate_epoch(val_loader)
+            
+            # 学習率調整
+            self.scheduler.step(val_loss)
+            
+            # 履歴記録
+            self.train_history['epoch'].append(epoch + 1)
+            self.train_history['train_loss'].append(train_loss)
+            self.train_history['val_loss'].append(val_loss)
+            self.train_history['goal_loss'].append(goal_loss)
+            self.train_history['result_loss'].append(result_loss)
+            self.train_history['accuracy'].append(accuracy)
+            
+            # ログ出力
+            self.logger.info(
+                f"Epoch {epoch+1}/{self.config['epochs']}: "
+                f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, "
+                f"Goal Loss: {goal_loss:.4f}, Result Loss: {result_loss:.4f}, "
+                f"Accuracy: {accuracy:.4f}"
+            )
+            
+            # ベストモデル保存
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                self.save_model(
+                    f"{save_path}/best_model.pth",
+                    metadata={
+                        'epoch': epoch + 1,
+                        'val_loss': val_loss,
+                        'accuracy': accuracy,
+                        'train_history': self.train_history
+                    }
+                )
+                self.logger.info(f"New best model saved (val_loss: {val_loss:.4f})")
+            
+            # 定期チェックポイント
+            if (epoch + 1) % checkpoint_interval == 0:
+                self.save_model(
+                    f"{save_path}/checkpoint_epoch_{epoch+1}.pth",
+                    metadata={'epoch': epoch + 1, 'train_history': self.train_history}
+                )
+                
+        self.logger.info("Unified training completed!")
 
 
 def train_league_predictor(
@@ -375,7 +475,6 @@ def train_league_predictor(
             'data_path': path,
             'weight': 1.0
         }
-    
     # トレーナー初期化
     trainer = FootballTrainer(config)
     trainer.initialize_model(pretrained_model)
